@@ -9,6 +9,7 @@ from .configuration import Configuration
 from .exceptions import PinkError
 from .solve_ik import build_ik, solve_ik
 from .tasks import (
+    ArmAngleTask,
     FrameTask,
     JointCouplingTask,
     JointVelocityTask,
@@ -21,6 +22,7 @@ from .utils import custom_configuration_vector
 __version__ = "4.2.0"
 
 __all__ = [
+    "ArmAngleTask",
     "Configuration",
     "FrameTask",
     "JointCouplingTask",

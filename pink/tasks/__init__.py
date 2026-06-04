@@ -5,10 +5,13 @@
 
 """Kinematic tasks."""
 
+from .arm_angle_task import ArmAngleTask
 from .com_task import ComTask
 from .damping_task import DampingTask
 from .frame_task import FrameTask
 from .joint_coupling_task import JointCouplingTask
+from .joint_position_task import JointLimitCenteringTask, JointPositionTask
+from .joint_spring_zone_task import JointSpringZoneTask
 from .joint_velocity_task import JointVelocityTask
 from .linear_holonomic_task import LinearHolonomicTask
 from .low_acceleration_task import LowAccelerationTask
@@ -20,10 +23,14 @@ from .rolling_task import RollingTask
 from .task import Task
 
 __all__ = [
+    "ArmAngleTask",
     "ComTask",
     "DampingTask",
     "FrameTask",
     "JointCouplingTask",
+    "JointLimitCenteringTask",
+    "JointPositionTask",
+    "JointSpringZoneTask",
     "JointVelocityTask",
     "LinearHolonomicTask",
     "LowAccelerationTask",
