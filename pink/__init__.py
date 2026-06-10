@@ -14,6 +14,7 @@ from .tasks import (
     JointCouplingTask,
     JointVelocityTask,
     LinearHolonomicTask,
+    NullSpacePostureTask,
     PostureTask,
     Task,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "JointCouplingTask",
     "JointVelocityTask",
     "LinearHolonomicTask",
+    "NullSpacePostureTask",
     "PinkError",
     "PostureTask",
     "Task",

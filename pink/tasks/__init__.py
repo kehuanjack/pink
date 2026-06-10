@@ -16,6 +16,7 @@ from .joint_velocity_task import JointVelocityTask
 from .linear_holonomic_task import LinearHolonomicTask
 from .low_acceleration_task import LowAccelerationTask
 from .manipulability_task import ManipulabilityTask
+from .null_space_posture_task import NullSpacePostureTask
 from .omniwheel_task import OmniwheelTask
 from .posture_task import PostureTask
 from .relative_frame_task import RelativeFrameTask
@@ -35,6 +36,7 @@ __all__ = [
     "LinearHolonomicTask",
     "LowAccelerationTask",
     "ManipulabilityTask",
+    "NullSpacePostureTask",
     "OmniwheelTask",
     "PostureTask",
     "RelativeFrameTask",
