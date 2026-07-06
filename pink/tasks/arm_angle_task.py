@@ -3,14 +3,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Arm-angle (redundancy) task for 7-DOF (or similar) serial arms.
+r"""Arm-angle (redundancy) task for 7-DOF (or similar) serial arms.
 
 This implements the **shoulder–elbow–wrist (SEW)** redundancy angle in the usual
 geometric sense: for fixed shoulder :math:`S`, wrist :math:`W`, and link
-lengths :math:`\\ell_{SE},\\ell_{EW}`, the elbow lies on a circle in the plane
-orthogonal to :math:`\\hat{s}_w = \\overrightarrow{SW}/\\|\\overrightarrow{SW}\\|`.
+lengths :math:`\ell_{SE},\ell_{EW}`, the elbow lies on a circle in the plane
+orthogonal to :math:`\hat{s}_w = \overrightarrow{SW}/\|\overrightarrow{SW}\|`.
 The scalar angle measures the in-plane direction of
-:math:`\\overrightarrow{CE}` (chord from circle center :math:`C` to elbow
+:math:`\overrightarrow{CE}` (chord from circle center :math:`C` to elbow
 :math:`E`) in an orthonormal basis :math:`(e_1,e_2)` of that plane.
 
 **Reference direction (gauge)**
@@ -18,8 +18,8 @@ The scalar angle measures the in-plane direction of
 The conventional SEW angle (e.g. Hollerbach, 1985; Kreutz-Delgado et al.) takes
 a **fixed unit reference vector** :math:`e_r` (often world :math:`+\mathbf{z}`)
 and builds a reference normal
-:math:`e_y \\propto \\hat{s}_w \\times e_r`,
-:math:`e_x = e_y \\times \\hat{s}_w` in the circle plane. Then :math:`\\psi` is
+:math:`e_y \propto \hat{s}_w \times e_r`,
+:math:`e_x = e_y \times \hat{s}_w` in the circle plane. Then :math:`\psi` is
 the angle of the SEW plane about the shoulder–wrist line w.r.t. the plane
 through :math:`SW` and :math:`e_r`.
 
@@ -29,16 +29,16 @@ which matches that **conventional** convention when
 
 **Singularities**
 
-When :math:`\\hat{s}_w` is **parallel** to :math:`e_r`, the reference plane is
+When :math:`\hat{s}_w` is **parallel** to :math:`e_r`, the reference plane is
 undefined (**algorithmic singularity** of conventional SEW). Elias & Wen
 (2024, arXiv:2307.13122) discuss **generalized / stereographic** choices of
-reference function :math:`f_x(\\mathbf{p}_{SW})` to shrink the singular set; this
+reference function :math:`f_x(\mathbf{p}_{SW})` to shrink the singular set; this
 module does not implement stereographic SEW—use a custom reference or switch
 `auxiliary_vector_world` near singularities if needed.
 
 **Modelling**
 
-:math:`\\ell_{SE},\\ell_{EW}` must be the kinematic distances consistent with
+:math:`\ell_{SE},\ell_{EW}` must be the kinematic distances consistent with
 the chosen shoulder / elbow / wrist **points** (frame origins). If URDF frame
 origins do not coincide with analytic S/E/W points, either calibrate lengths or
 accept that measured :math:`E` is projected radially onto the circle (see
@@ -73,11 +73,11 @@ def _sw_plane_basis(
     W: np.ndarray,
     aux_world: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
-    """Unit shoulder-to-wrist axis and orthonormal (e1, e2) spanning the elbow circle plane.
+    r"""Unit shoulder-to-wrist axis and orthonormal (e1, e2) spanning the elbow circle plane.
 
     When ``aux_world`` is None, use **conventional SEW** reference
-    :math:`e_r = (0,0,1)` and set :math:`e_1 \propto \hat{s}_w \\times e_r`,
-    :math:`e_2 = \hat{s}_w \\times e_1`, matching :math:`e_y,e_x` in Elias &
+    :math:`e_r = (0,0,1)` and set :math:`e_1 \propto \hat{s}_w \times e_r`,
+    :math:`e_2 = \hat{s}_w \times e_1`, matching :math:`e_y,e_x` in Elias &
     Wen (arXiv:2307.13122, Table~1, conventional SEW).
 
     If ``aux_world`` is set, it is used as a custom :math:`e_r` (not necessarily
@@ -178,9 +178,14 @@ class ArmAngleTask(Task):
 
     **Jacobian**
 
-    This task uses symmetric finite differences of :math:`\theta(q)` in the
-    robot tangent space, which is robust across floating-base and varying joint
-    models at the cost of :math:`O(n_v)` kinematic evaluations per Jacobian.
+    The task Jacobian is assembled via the geometric chain rule
+    :math:`J_\theta = (\partial\theta/\partial S)\,J_S
+    + (\partial\theta/\partial E)\,J_E
+    + (\partial\theta/\partial W)\,J_W`, where :math:`J_S,J_E,J_W` are
+    translational frame Jacobians from :class:`Configuration` and
+    :math:`\partial\theta/\partial S` etc. are obtained by symmetric finite
+    differences on the three SEW points only (nine evaluations of
+    :func:`_arm_angle_from_points`).
 
     Attributes:
         shoulder_frame: Name of the shoulder link/joint frame in the model.
@@ -295,36 +300,120 @@ class ArmAngleTask(Task):
         e = _wrap_to_pi_scalar(th - self.target_theta)
         return np.array([e], dtype=float)
 
+    def _frame_positions_and_jacobians(
+        self, configuration: Configuration
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        r"""Shoulder, elbow, wrist positions and translational frame Jacobians.
+
+        Args:
+            configuration: Robot configuration :math:`q` with forward kinematics
+                already computed.
+
+        Returns:
+            Tuple ``(S, E, W, J_S, J_E, J_W)`` where positions are in the world
+            frame. Each :math:`J_\*` is the translational Jacobian
+            :math:`\partial p / \partial q` in the world frame. Because
+            :meth:`Configuration.get_frame_jacobian` uses
+            :data:`pin.ReferenceFrame.LOCAL`, the first three rows are rotated
+            into the world frame (same convention as
+            :class:`~pink.barriers.position_barrier.PositionBarrier`).
+        """
+        TS = configuration.get_transform_frame_to_world(self.shoulder_frame)
+        TE = configuration.get_transform_frame_to_world(self.elbow_frame)
+        TW = configuration.get_transform_frame_to_world(self.wrist_frame)
+        S = np.array(TS.translation, dtype=float)
+        E = np.array(TE.translation, dtype=float)
+        W = np.array(TW.translation, dtype=float)
+        JS = configuration.get_frame_jacobian(self.shoulder_frame)[:3]
+        JE = configuration.get_frame_jacobian(self.elbow_frame)[:3]
+        JW = configuration.get_frame_jacobian(self.wrist_frame)[:3]
+        JS = TS.rotation @ JS
+        JE = TE.rotation @ JE
+        JW = TW.rotation @ JW
+        return S, E, W, JS, JE, JW
+
+    def _theta_gradient_points(
+        self,
+        S: np.ndarray,
+        E: np.ndarray,
+        W: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        r"""Gradients of arm angle w.r.t. shoulder, elbow, and wrist positions.
+
+        Symmetric finite differences perturb each world-frame coordinate of
+        :math:`S`, :math:`E`, and :math:`W` (eighteen calls to
+        :func:`_arm_angle_from_points`).
+
+        Args:
+            S: Shoulder position in the world frame.
+            E: Elbow position in the world frame.
+            W: Wrist position in the world frame.
+
+        Returns:
+            Tuple ``(g_S, g_E, g_W)`` with each gradient shaped ``(3,)``.
+        """
+        h = self.finite_difference_step
+        l_se = self.upper_arm_length
+        l_ew = self.forearm_length
+        aux = self.auxiliary_vector_world
+
+        gS = np.zeros(3, dtype=float)
+        gE = np.zeros(3, dtype=float)
+        gW = np.zeros(3, dtype=float)
+        if h <= 0.0:
+            return gS, gE, gW
+
+        for axis in range(3):
+            S_p = S.copy()
+            S_m = S.copy()
+            S_p[axis] += h
+            S_m[axis] -= h
+            ok_p, th_p = _arm_angle_from_points(S_p, E, W, l_se, l_ew, aux)
+            ok_m, th_m = _arm_angle_from_points(S_m, E, W, l_se, l_ew, aux)
+            if ok_p and ok_m:
+                gS[axis] = _wrap_to_pi_scalar(th_p - th_m) / (2.0 * h)
+
+            E_p = E.copy()
+            E_m = E.copy()
+            E_p[axis] += h
+            E_m[axis] -= h
+            ok_p, th_p = _arm_angle_from_points(S, E_p, W, l_se, l_ew, aux)
+            ok_m, th_m = _arm_angle_from_points(S, E_m, W, l_se, l_ew, aux)
+            if ok_p and ok_m:
+                gE[axis] = _wrap_to_pi_scalar(th_p - th_m) / (2.0 * h)
+
+            W_p = W.copy()
+            W_m = W.copy()
+            W_p[axis] += h
+            W_m[axis] -= h
+            ok_p, th_p = _arm_angle_from_points(S, E, W_p, l_se, l_ew, aux)
+            ok_m, th_m = _arm_angle_from_points(S, E, W_m, l_se, l_ew, aux)
+            if ok_p and ok_m:
+                gW[axis] = _wrap_to_pi_scalar(th_p - th_m) / (2.0 * h)
+
+        return gS, gE, gW
+
     def compute_jacobian(self, configuration: Configuration) -> np.ndarray:
-        model = configuration.model
-        nv = model.nv
+        nv = configuration.model.nv
         J = np.zeros((1, nv))
-        ok0, th0 = self._theta_from_configuration(configuration)
+
+        if self.finite_difference_step <= 0.0:
+            return J
+
+        S, E, W, JS, JE, JW = self._frame_positions_and_jacobians(configuration)
+        ok0, _ = _arm_angle_from_points(
+            S,
+            E,
+            W,
+            self.upper_arm_length,
+            self.forearm_length,
+            self.auxiliary_vector_world,
+        )
         if not ok0:
             return J
 
-        h = self.finite_difference_step
-        if h <= 0.0:
-            return J
-
-        q0 = configuration.q.copy()
-        data_fd = model.createData()
-        for i in range(nv):
-            dq = np.zeros(nv)
-            dq[i] = h
-            q_m = pin.integrate(model, q0, -dq)
-            q_p = pin.integrate(model, q0, dq)
-            ok_m, th_m = self._theta_from_model(model, data_fd, q_m)
-            ok_p, th_p = self._theta_from_model(model, data_fd, q_p)
-            if ok_m and ok_p:
-                dth = _wrap_to_pi_scalar(th_p - th_m) / (2.0 * h)
-            elif ok_p:
-                dth = _wrap_to_pi_scalar(th_p - th0) / h
-            elif ok_m:
-                dth = _wrap_to_pi_scalar(th0 - th_m) / h
-            else:
-                dth = 0.0
-            J[0, i] = dth
+        gS, gE, gW = self._theta_gradient_points(S, E, W)
+        J[0, :] = gS @ JS + gE @ JE + gW @ JW
         return J
 
     def __repr__(self) -> str:
