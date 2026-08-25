@@ -11,6 +11,7 @@ from .solve_ik import build_ik, solve_ik
 from .tasks import (
     ArmAngleTask,
     FrameTask,
+    GazeTask,
     JointCouplingTask,
     JointVelocityTask,
     LinearHolonomicTask,
@@ -26,6 +27,7 @@ __all__ = [
     "ArmAngleTask",
     "Configuration",
     "FrameTask",
+    "GazeTask",
     "JointCouplingTask",
     "JointVelocityTask",
     "LinearHolonomicTask",

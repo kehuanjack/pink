@@ -9,6 +9,7 @@ from .arm_angle_task import ArmAngleTask
 from .com_task import ComTask
 from .damping_task import DampingTask
 from .frame_task import FrameTask
+from .gaze_task import GazeTask
 from .joint_coupling_task import JointCouplingTask
 from .joint_position_task import JointLimitCenteringTask, JointPositionTask
 from .joint_spring_zone_task import JointSpringZoneTask
@@ -28,6 +29,7 @@ __all__ = [
     "ComTask",
     "DampingTask",
     "FrameTask",
+    "GazeTask",
     "JointCouplingTask",
     "JointLimitCenteringTask",
     "JointPositionTask",
