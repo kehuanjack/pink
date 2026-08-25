@@ -17,7 +17,9 @@ REVOLUTE_SHORTNAMES = {
     "JointModelRY",
     "JointModelRZ",
     "JointModelRevoluteUnaligned",
-    "JointModelRevoluteUnbounded",
+    "JointModelRUBX",
+    "JointModelRUBY",
+    "JointModelRUBZ",
     "JointModelRevoluteUnboundedUnaligned",
 }
 
@@ -79,10 +81,12 @@ class ManipulabilityTask(Task):
         time using the provided model.
 
         Check the manipulability task of PlaCo for a similar (yet different)
-        implementation: https://placo.readthedocs.io/en/latest/kinematics/regularization.html#manipulability-regularization
+        implementation:
+        <https://placo.readthedocs.io/en/latest/kinematics/regularization.html#manipulability-regularization>.
         This term gives a behavior similar to the MMC controller
         (Manipulability Motion Control) by Jese Haviland and Peter Corke.
-        Consider also citing their work if you use this task in a publication: https://jhavl.github.io/mmc/
+        Consider also citing their work if you use this task in a publication:
+        <https://jhavl.github.io/mmc/>.
     """
 
     def __init__(
@@ -171,14 +175,13 @@ class ManipulabilityTask(Task):
                 raise ValueError("custom mask must be binary (0 or 1)")
             return mask
 
-        elif isinstance(mask, str):
+        if isinstance(mask, str):
             return self._get_mask_from_string(mask)
 
-        else:
-            raise ValueError(
-                "mask must be either a predefined string or "
-                "a custom binary numpy array"
-            )
+        raise ValueError(
+            "mask must be either a predefined string or "
+            "a custom binary numpy array"
+        )
 
     def _get_mask_from_string(
         self,
@@ -186,12 +189,11 @@ class ManipulabilityTask(Task):
     ) -> np.ndarray:
         if mask_str == "position":
             return np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0])
-        elif mask_str == "orientation":
+        if mask_str == "orientation":
             return np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
-        elif mask_str == "planar_xy":
+        if mask_str == "planar_xy":
             return np.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
-        else:
-            raise ValueError(f"invalid mask string: {mask_str}")
+        raise ValueError(f"invalid mask string: {mask_str}")
 
     def _mask_jacobian(self, J: np.ndarray) -> np.ndarray:
         """Apply the mask to the Jacobian matrix."""

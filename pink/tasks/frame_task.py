@@ -231,26 +231,24 @@ class FrameTask(Task):
         """Get the position cost."""
         if isinstance(self.cost, np.ndarray):
             return self.cost[0:3]
-        elif isinstance(self.cost, float):
+        if isinstance(self.cost, float):
             return self.cost
-        else:
-            raise TaskDefinitionError(
-                "Frame task cost should be a vector or a scalar, "
-                f"currently cost={self.cost}"
-            )
+        raise TaskDefinitionError(
+            "Frame task cost should be a vector or a scalar, "
+            f"currently cost={self.cost}"
+        )
 
     @property
     def orientation_cost(self) -> Union[float, np.ndarray]:
         """Get the orientation cost."""
         if isinstance(self.cost, np.ndarray):
             return self.cost[3:6]
-        elif isinstance(self.cost, float):
+        if isinstance(self.cost, float):
             return self.cost
-        else:
-            raise TaskDefinitionError(
-                "Frame task cost should be a vector or a scalar, "
-                f"currently cost={self.cost}"
-            )
+        raise TaskDefinitionError(
+            "Frame task cost should be a vector or a scalar, "
+            f"currently cost={self.cost}"
+        )
 
     def __repr__(self):
         """Human-readable representation of the task."""

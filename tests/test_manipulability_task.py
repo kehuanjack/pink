@@ -23,10 +23,12 @@ class TestManipulabilityTask(unittest.TestCase):
 
     def setUp(self):
         """Prepare test fixture."""
-        robot = load_robot_description("ur3_description", root_joint=None)
+        robot = load_robot_description(
+            "ur3_official_description", root_joint=None
+        )
         self.configuration = Configuration(robot.model, robot.data, robot.q0)
         # Use the end-effector frame for manipulability computation
-        self.frame_name = "ee_link"
+        self.frame_name = "tool0"
 
     def test_task_repr(self):
         """String representation reports the task parameters."""
@@ -328,33 +330,64 @@ class TestManipulabilityTask(unittest.TestCase):
         with self.assertRaises(ValueError):
             ManipulabilityTask("ee", model, cost=1.0)
 
+    def test_continuous_joint_does_not_raise(self):
+        """Continuous (axis-aligned unbounded revolute) joint is supported.
+
+        Regression test: such joints (e.g. the wrist_3_joint of the
+        official UR descriptions) report their pinocchio shortname as
+        ``JointModelRUBX``/``RUBY``/``RUBZ``, not
+        ``JointModelRevoluteUnbounded``.
+        """
+        urdf_string = """\
+<?xml version="1.0"?>
+<robot name="continuous_robot">
+  <link name="base_link">
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+  </link>
+  <link name="ee"/>
+  <joint name="continuous_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="ee"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+</robot>"""
+        model = pin.buildModelFromXML(urdf_string)
+        ManipulabilityTask("ee", model, cost=1.0)
+
     def test_manipulability_jacobian_vs_finite_differences(self):
         """Manipulability Jacobian should match finite differences."""
         task = ManipulabilityTask(
             self.frame_name, self.configuration.model, cost=1.0
         )
         # q0 is singular for UR3; use a non-singular configuration
-        q = np.array([0.0, -np.pi / 4, np.pi / 2, -np.pi / 4, -np.pi / 2, 0.0])
-        configuration = Configuration(
-            self.configuration.model, self.configuration.data, q
+        model = self.configuration.model
+        q = pin.integrate(
+            model,
+            pin.neutral(model),
+            np.array(
+                [0.0, -np.pi / 4, np.pi / 2, -np.pi / 4, -np.pi / 2, 0.0]
+            ),
         )
+        configuration = Configuration(model, self.configuration.data, q)
         Jm = task.compute_jacobian(configuration)
 
         eps = 1e-6
-        nv = self.configuration.model.nv
+        nv = model.nv
         grad_fd = np.zeros(nv)
         for i in range(nv):
-            q_plus = q.copy()
-            q_plus[i] += eps
+            e_i = np.eye(nv)[i]
+            q_plus = pin.integrate(model, q, eps * e_i)
             config_plus = Configuration(
-                self.configuration.model,
+                model,
                 self.configuration.data,
                 q_plus,
             )
-            q_minus = q.copy()
-            q_minus[i] -= eps
+            q_minus = pin.integrate(model, q, -eps * e_i)
             config_minus = Configuration(
-                self.configuration.model,
+                model,
                 self.configuration.data,
                 q_minus,
             )

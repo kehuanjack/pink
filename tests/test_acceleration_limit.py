@@ -25,7 +25,7 @@ class TestAccelerationLimit(unittest.TestCase):
 
     def setUp(self):
         """Set test fixture up."""
-        robot = load_robot_description("ur3_description")
+        robot = load_robot_description("ur3_official_description")
         model = robot.model
         a_max = UR3_MAX_ACCEL * np.ones(robot.model.nv)  # rad/s²
         self.a_max = a_max
@@ -52,10 +52,51 @@ class TestAccelerationLimit(unittest.TestCase):
             empty_bounded.compute_qp_inequalities(empty_configuration, 1e-3)
         )
 
+    def test_continuous_joint_has_no_braking_distance(self):
+        """A continuous joint gets no braking-distance bound.
+
+        A URDF ``continuous`` joint is unbounded: it has no configuration
+        limit, so only the plain acceleration bound applies to it and the
+        "braking distance to configuration limits" term must be skipped.
+
+        The acceleration inequalities for such a joint must therefore stay
+        self-consistent (lower bound not above upper bound), so that the QP
+        stays feasible.
+        """
+        urdf = """
+        <robot name="continuous_joint_robot">
+          <link name="base_link"/>
+          <link name="link1"/>
+          <joint name="joint1" type="continuous">
+            <parent link="base_link"/>
+            <child link="link1"/>
+            <axis xyz="0 0 1"/>
+          </joint>
+        </robot>
+        """
+        model = pin.buildModelFromXML(urdf)
+        data = model.createData()
+        a_max = np.array([14.0])  # rad/s^2
+        dt = 5e-3  # s
+        limit = AccelerationLimit(model, a_max)
+        configuration = Configuration(model, data, pin.neutral(model))
+        # Previous displacement large enough (3 rad / s * dt > a_max * dt^2)
+        # that the acceleration bound alone requires decelerating at next step.
+        limit.set_last_integration(np.array([3.0]), dt)
+        G, h = limit.compute_qp_inequalities(configuration, dt)
+        nb = len(limit.indices)
+        upper_bound = h[:nb]
+        lower_bound = -h[nb:]
+        self.assertTrue(
+            np.all(lower_bound <= upper_bound),
+            "acceleration bound is self-contradictory: "
+            f"{lower_bound=} > {upper_bound=}",
+        )
+
     def test_limit_has_an_effect(self):
         """Check that the limit has an effect on a reaching task."""
         end_effector_task = FrameTask(
-            "ee_link",
+            "tool0",
             position_cost=1.0,  # [cost] / [m]
             orientation_cost=1.0,  # [cost] / [rad]
         )

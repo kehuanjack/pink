@@ -9,15 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Limit: Allow custom boundaries in `VelocityLimit`
+
+## [4.3.0] - 2026-07-15
+
+### Added
+
+- CICD: Regression test on shortnames of continuous joints
+- Support for Python 3.13
+- Support for Python 3.14
 - examples: Add an example with the JVRC-1 humanoid backbending via a CoM task
 
 ### Changed
 
+- Add `xacrodoc` to project dependencies
+- CICD: Switch UR3, UR5 and UR10 to their official descriptions
 - Transfer copyright notices to `NOTICE` file
+- examples: Switch UR3, UR5 and UR10 to their official descriptions
 
 ### Fixed
 
 - Add `typing_extensions` to project dependencies
+- Limit: Fix `AccelerationLimit` braking-distance term for joints without a configuration limit, such as continuous joints
+- Task: Update list of revolute-joint shortnames supported by the `ManipulabilityTask`
 
 ## [4.2.0] - 2026-04-20
 
@@ -82,13 +96,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Task: `JointVelocityTask` for tracking a reference joint-velocity trajectory
 
-### Fixed
-
-- Save problem instance in `NoSolutionFound` exception
-
 ### Removed
 
 - Remove unused attribute of `SelfCollisionBarrier`
+
+### Fixed
+
+- Save problem instance in `NoSolutionFound` exception
 
 ## [3.3.0] - 2025-05-15
 
@@ -136,13 +150,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Raise custom `NoSolutionFound` rather than `AssertionError` in `solve_ik`
 - Update supported Python versions to 3.9–3.12
 
-### Fixed
-
-- CICD: Update unit test for self-collision barrier
-
 ### Removed
 
 - Remove dependency on quadprog (thanks to @peterd-NV)
+
+### Fixed
+
+- CICD: Update unit test for self-collision barrier
 
 ## [3.1.0] - 2024-10-28
 
@@ -189,14 +203,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DampingTask: Simplify implementation
 - Update to Pinocchio 3 with 2.7 backward compatibility
 
+### Removed
+
+- CICD: Disable macOS checks until upstream PyPI package is fixed
+
 ### Fixed
 
 - PostureTask: Match implementation and documentation formula
 - Fix broken documentation links
-
-### Removed
-
-- CICD: Disable macOS checks until upstream PyPI package is fixed
 
 ## [2.1.0] - 2024-04-02
 
@@ -468,7 +482,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Python package infrastructure
 
-[unreleased]: https://github.com/stephane-caron/pink/compare/v4.2.0...HEAD
+[unreleased]: https://github.com/stephane-caron/pink/compare/v4.3.0...HEAD
+[4.3.0]: https://github.com/stephane-caron/pink/releases/tag/v4.3.0
 [4.2.0]: https://github.com/stephane-caron/pink/releases/tag/v4.2.0
 [4.1.0]: https://github.com/stephane-caron/pink/releases/tag/v4.1.0
 [4.0.0]: https://github.com/stephane-caron/pink/releases/tag/v4.0.0
