@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Limit: Allow custom boundaries in `VelocityLimit`
+- Task: `FrameTask.cost_frame` (`"local"` | `"world"`) so anisotropic
+  position/orientation costs can be expressed in world-aligned axes
 
 ## [4.3.0] - 2026-07-15
 

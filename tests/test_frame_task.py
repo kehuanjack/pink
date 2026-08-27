@@ -233,3 +233,76 @@ class TestFrameTask(unittest.TestCase):
             task.set_position_cost(1.0)
         with self.assertRaises(TaskDefinitionError):
             task.set_orientation_cost(1.0)
+
+    def test_invalid_cost_frame(self):
+        """Reject unknown cost_frame values."""
+        with self.assertRaises(TaskDefinitionError):
+            FrameTask(
+                "l_ankle",
+                position_cost=1.0,
+                orientation_cost=0.1,
+                cost_frame="body",
+            )
+
+    def test_world_matches_local_when_aligned(self):
+        """World error equals diag(R,R) @ local error."""
+        frame = "l_ankle"
+        target = pin.SE3(
+            np.eye(3),
+            self.configuration.get_transform_frame_to_world(frame).translation
+            + np.array([0.05, -0.02, 0.03]),
+        )
+        local = FrameTask(frame, position_cost=1.0, orientation_cost=1.0)
+        world = FrameTask(
+            frame,
+            position_cost=1.0,
+            orientation_cost=1.0,
+            cost_frame="world",
+        )
+        local.set_target(target)
+        world.set_target(target)
+        e_local = local.compute_error(self.configuration)
+        e_world = world.compute_error(self.configuration)
+        R = self.configuration.get_transform_frame_to_world(frame).rotation
+        e_aligned = np.hstack((R @ e_local[:3], R @ e_local[3:]))
+        self.assertTrue(np.allclose(e_world, e_aligned))
+        J_local = local.compute_jacobian(self.configuration)
+        J_world = world.compute_jacobian(self.configuration)
+        J_aligned = np.vstack((R @ J_local[:3], R @ J_local[3:]))
+        self.assertTrue(np.allclose(J_world, J_aligned))
+
+    def test_world_position_cost_follows_inertial_axes(self):
+        """Anisotropic world costs ignore body yaw when weighting Z only."""
+        frame = "l_ankle"
+        T_b = self.configuration.get_transform_frame_to_world(frame)
+        # Pure world-Z translation of the target.
+        target = pin.SE3(T_b.rotation, T_b.translation + np.array([0.0, 0.0, 0.1]))
+        task = FrameTask(
+            frame,
+            position_cost=[0.0, 0.0, 1.0],
+            orientation_cost=0.0,
+            cost_frame="world",
+            lm_damping=0.0,
+            gain=1.0,
+        )
+        task.set_target(target)
+        e = task.compute_error(self.configuration)
+        # World-aligned translation error should be along +Z.
+        self.assertAlmostEqual(e[0], 0.0, places=6)
+        self.assertAlmostEqual(e[1], 0.0, places=6)
+        self.assertAlmostEqual(e[2], 0.1, places=5)
+        H, c = task.compute_qp_objective(self.configuration)
+        # Objective depends only on the Z row of the world Jacobian.
+        J = task.compute_jacobian(self.configuration)
+        self.assertTrue(np.allclose(H, np.outer(J[2], J[2])))
+        self.assertTrue(np.allclose(c, e[2] * J[2]))
+
+    def test_repr_includes_cost_frame(self):
+        """String representation reports cost_frame."""
+        task = FrameTask(
+            "earflap",
+            position_cost=1.0,
+            orientation_cost=0.1,
+            cost_frame="world",
+        )
+        self.assertIn("cost_frame=world", repr(task))

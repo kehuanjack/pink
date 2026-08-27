@@ -5,7 +5,7 @@
 
 """Frame task implementation."""
 
-from typing import Optional, Sequence, Union
+from typing import Literal, Optional, Sequence, Union
 
 import numpy as np
 import pinocchio as pin
@@ -14,6 +14,8 @@ from ..configuration import Configuration
 from ..exceptions import TargetNotSet, TaskDefinitionError
 from .task import Task
 
+CostFrame = Literal["local", "world"]
+
 
 class FrameTask(Task):
     r"""Regulate the pose of a robot frame in the world frame.
@@ -21,6 +23,10 @@ class FrameTask(Task):
     Attributes:
         frame: Frame name, typically the name of a link or joint from the robot
             description.
+        cost_frame: Frame in which anisotropic ``position_cost`` /
+            ``orientation_cost`` axes are interpreted. ``"local"`` (default)
+            uses body axes of the task frame; ``"world"`` uses axes parallel to
+            the inertial frame (Pinocchio ``LOCAL_WORLD_ALIGNED``).
         transform_target_to_world: Target pose of the frame.
 
     Costs are designed so that errors with varying SI units, here position and
@@ -39,6 +45,7 @@ class FrameTask(Task):
     """
 
     frame: str
+    cost_frame: CostFrame
     transform_target_to_world: Optional[pin.SE3]
 
     def __init__(
@@ -48,6 +55,7 @@ class FrameTask(Task):
         orientation_cost: Union[float, Sequence[float]],
         lm_damping: float = 0.0,
         gain: float = 1.0,
+        cost_frame: CostFrame = "local",
     ) -> None:
         r"""Define a new frame task.
 
@@ -57,23 +65,32 @@ class FrameTask(Task):
             position_cost: Contribution of position errors to the normalized
                 cost, in :math:`[\mathrm{cost}] / [\mathrm{m}]`. If this is a
                 vector, the cost is anisotropic and each coordinate corresponds
-                to an axis of the frame.
+                to an axis of ``cost_frame``.
             orientation_cost: Contribution of orientation errors to the
                 normalized cost, in :math:`[\mathrm{cost}] / [\mathrm{rad}]`.
                 If this is a vector, the cost is anisotropic and each
-                coordinate corresponds to an axis of the frame.
+                coordinate corresponds to an axis of ``cost_frame``.
             lm_damping: Levenberg-Marquardt damping (see class attributes). The
                 default value is conservatively low.
             gain: Task gain :math:`\alpha \in [0, 1]` for additional low-pass
                 filtering. Defaults to 1.0 (no filtering) for dead-beat
                 control.
+            cost_frame: ``"local"`` to weight body-frame twist coordinates
+                (Pink default), or ``"world"`` to weight world-aligned
+                coordinates so that e.g. ``position_cost=[0, 0, 1]`` always
+                means world :math:`z`.
         """
+        if cost_frame not in ("local", "world"):
+            raise TaskDefinitionError(
+                f"cost_frame must be 'local' or 'world', got {cost_frame!r}"
+            )
         super().__init__(
             cost=np.ones(6),  # updated below
             gain=gain,
             lm_damping=lm_damping,
         )
         self.frame = frame
+        self.cost_frame = cost_frame
         self.lm_damping = lm_damping
         self.transform_target_to_world = None
         #
@@ -89,7 +106,7 @@ class FrameTask(Task):
             position_cost: Contribution of position errors to the normalized
                 cost, in :math:`[\mathrm{cost}] / [\mathrm{m}]`. If this is a
                 vector, the cost is anisotropic and each coordinate corresponds
-                to an axis of the frame.
+                to an axis of :attr:`cost_frame`.
         """
         if isinstance(position_cost, float):
             assert position_cost >= 0.0
@@ -112,7 +129,7 @@ class FrameTask(Task):
             orientation_cost: Contribution of orientation errors to the
                 normalized cost, in :math:`[\mathrm{cost}] / [\mathrm{rad}]`.
                 If this is a vector, the cost is anisotropic and each
-                coordinate corresponds to an axis of the frame.
+                coordinate corresponds to an axis of :attr:`cost_frame`.
         """
         if isinstance(orientation_cost, float):
             assert orientation_cost >= 0.0
@@ -125,6 +142,11 @@ class FrameTask(Task):
                 "Frame task cost should be a vector, "
                 f"currently cost={self.cost}"
             )
+
+    @staticmethod
+    def _align_twist(twist: np.ndarray, rotation: np.ndarray) -> np.ndarray:
+        """Map a body twist to world-aligned coordinates via ``diag(R, R)``."""
+        return np.hstack((rotation @ twist[:3], rotation @ twist[3:]))
 
     def set_target(self, transform_target_to_world: pin.SE3) -> None:
         """Set task target pose in the world frame.
@@ -148,12 +170,17 @@ class FrameTask(Task):
     def compute_error(self, configuration: Configuration) -> np.ndarray:
         r"""Compute frame task error.
 
-        This error is a twist :math:`e(q) \in se(3)` expressed in the local
-        frame (i.e. it is a *body* twist). We map it to :math:`\mathbb{R}^6`
-        using Pinocchio's convention where linear coordinates are followed by
-        angular coordinates.
+        By default (``cost_frame="local"``) this error is a twist
+        :math:`e(q) \in se(3)` expressed in the local frame (i.e. it is a
+        *body* twist). With ``cost_frame="world"`` the same body twist is
+        mapped to world-aligned coordinates
+        :math:`e_{\mathrm{lwa}} = \mathrm{diag}(R_{0b}, R_{0b})\, e_b` so that
+        anisotropic costs apply along inertial axes.
 
-        The error is the right-minus difference between the target pose
+        We map the twist to :math:`\mathbb{R}^6` using Pinocchio's convention
+        where linear coordinates are followed by angular coordinates.
+
+        The body error is the right-minus difference between the target pose
         :math:`T_{0t}` and current frame pose :math:`T_{0b}`:
 
         .. math::
@@ -190,6 +217,10 @@ class FrameTask(Task):
         #         = transform_target_to_frame
         #
         error_in_frame: np.ndarray = pin.log(transform_target_to_frame).vector
+        if self.cost_frame == "world":
+            return self._align_twist(
+                error_in_frame, transform_frame_to_world.rotation
+            )
         return error_in_frame
 
     def compute_jacobian(self, configuration: Configuration) -> np.ndarray:
@@ -197,11 +228,16 @@ class FrameTask(Task):
 
         The task Jacobian :math:`J(q) \in \mathbb{R}^{6 \times n_v}` is the
         derivative of the task error :math:`e(q) \in \mathbb{R}^6` with respect
-        to the configuration :math:`q`. The formula for the frame task is:
+        to the configuration :math:`q`. The formula for the local frame task
+        is:
 
         .. math::
 
             J(q) = -\text{Jlog}_6(T_{tb}) {}_b J_{0b}(q)
+
+        With ``cost_frame="world"``, rows are left-multiplied by
+        :math:`\mathrm{diag}(R_{0b}, R_{0b})` to match the world-aligned
+        error.
 
         The derivation of the formula for this Jacobian is detailed in
         [Caron2023]_. See also
@@ -212,7 +248,8 @@ class FrameTask(Task):
             configuration: Robot configuration :math:`q`.
 
         Returns:
-            Jacobian matrix :math:`J`, expressed locally in the frame.
+            Jacobian matrix :math:`J`, in the same frame as
+            :func:`compute_error`.
         """
         if self.transform_target_to_world is None:
             raise TargetNotSet(f"no target set for frame '{self.frame}'")
@@ -224,6 +261,9 @@ class FrameTask(Task):
         )
         jacobian_in_frame = configuration.get_frame_jacobian(self.frame)
         J = -pin.Jlog6(transform_frame_to_target) @ jacobian_in_frame
+        if self.cost_frame == "world":
+            R = transform_frame_to_world.rotation
+            J = np.vstack((R @ J[:3], R @ J[3:]))
         return J
 
     @property
@@ -255,6 +295,7 @@ class FrameTask(Task):
         return (
             "FrameTask("
             f"frame={self.frame}, "
+            f"cost_frame={self.cost_frame}, "
             f"position_cost={self.position_cost}, "
             f"orientation_cost={self.orientation_cost}, "
             f"lm_damping={self.lm_damping}, "
