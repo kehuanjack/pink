@@ -129,6 +129,16 @@ class TestGazeTask(unittest.TestCase):
         self.assertTrue(np.allclose(task.compute_error(self.configuration), 0.0))
         self.assertTrue(np.allclose(task.compute_jacobian(self.configuration), 0.0))
 
+    def test_rejects_anti_parallel_null_of_cross_product(self):
+        """Cross product is zero at 180 deg; direction-axis error must stay non-zero."""
+        transform = self.configuration.get_transform_frame_to_world("camera")
+        origin = transform.translation + transform.rotation @ self.task.offset
+        axis = transform.rotation @ self.task.optical_axis
+        self.task.set_target(origin - axis)
+        error = self.task.compute_error(self.configuration)
+        self.assertGreater(np.linalg.norm(error), 1.0)
+        self.assertAlmostEqual(float(np.dot(axis, -axis)), -1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

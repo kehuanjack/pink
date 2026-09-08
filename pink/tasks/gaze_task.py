@@ -28,10 +28,11 @@ def _skew(vector: np.ndarray) -> np.ndarray:
 class GazeTask(Task):
     r"""Point a frame-fixed optical axis toward a world-space target.
 
-    The task error is the cross product between the current optical axis and
-    the direction from the optical origin to the target. Its Jacobian can be
-    restricted to selected 1-DoF joints, which is useful for a pan-tilt head:
-    other robot joints then cannot compensate for gaze error.
+    The task error is ``direction - axis`` (both unit vectors). Unlike the raw
+    cross product, this is zero only when the optical axis is aligned with the
+    target direction (dot product +1), not at the anti-parallel null (dot -1).
+    Its Jacobian can be restricted to selected 1-DoF joints, which is useful for
+    a pan-tilt head: other robot joints then cannot compensate for gaze error.
     """
 
     frame: str
@@ -138,7 +139,7 @@ class GazeTask(Task):
         _, axis, direction, distance = self._geometry(configuration)
         if distance <= self.min_target_distance:
             return np.zeros(3)
-        return np.cross(axis, direction)
+        return direction - axis
 
     def compute_jacobian(self, configuration: Configuration) -> np.ndarray:
         """Compute the alignment-error Jacobian, masked to selected joints."""
@@ -155,13 +156,9 @@ class GazeTask(Task):
         origin_jacobian -= _skew(offset_world) @ angular_jacobian
 
         direction_projection = np.eye(3) - np.outer(direction, direction)
-        full_jacobian = (
-            _skew(direction) @ _skew(axis) @ angular_jacobian
-            - _skew(axis)
-            @ direction_projection
-            @ origin_jacobian
-            / distance
-        )
+        axis_jacobian = -_skew(axis) @ angular_jacobian
+        direction_jacobian = -direction_projection @ origin_jacobian / distance
+        full_jacobian = direction_jacobian - axis_jacobian
         jacobian[:, self.idx_v] = full_jacobian[:, self.idx_v]
         return jacobian
 

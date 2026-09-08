@@ -5,7 +5,7 @@
 
 """Null-space posture task implementation."""
 
-from typing import Optional, Sequence, Union
+from typing import Literal, Optional, Sequence, Union
 
 import numpy as np
 import pinocchio as pin
@@ -13,7 +13,11 @@ import pinocchio as pin
 from ..configuration import Configuration
 from ..exceptions import TargetNotSet
 from ..utils import get_root_joint_dim
+from .manipulability_task import ManipulabilityTask, check_revolute_path
 from .posture_task import PostureTask
+
+NullSpacePreference = Literal["posture", "manipulability"]
+_Mask = Optional[Union[Literal["position", "orientation", "planar_xy"], np.ndarray]]
 
 
 def masked_null_space_projector_block(
@@ -84,6 +88,11 @@ class NullSpacePostureTask(PostureTask):
         self,
         frames: Union[str, Sequence[str]],
         cost: float,
+        *,
+        model: pin.Model | None = None,
+        preference: NullSpacePreference = "posture",
+        manipulability_rate: float = 0.1,
+        manip_mask: _Mask = "position",
         projector_damping: float = 1e-6,
         velocity_limit_scale: float = 0.8,
         lm_damping: float = 0.0,
@@ -94,6 +103,8 @@ class NullSpacePostureTask(PostureTask):
             frame_list = [frames]
         else:
             frame_list = list(frames)
+        self.preference: NullSpacePreference = preference
+        self.manipulability_rate = float(manipulability_rate)
         self.projector_damping = float(projector_damping)
         self.velocity_limit_scale = float(velocity_limit_scale)
         self._dt: Optional[float] = None
@@ -102,6 +113,26 @@ class NullSpacePostureTask(PostureTask):
         self._cached_q: Optional[np.ndarray] = None
         self._cached_projector: Optional[np.ndarray] = None
         self._cached_masked_block: Optional[np.ndarray] = None
+        self._manip_task: ManipulabilityTask | None = None
+        if self.preference == "manipulability":
+            if model is None:
+                raise ValueError(
+                    "NullSpacePostureTask preference='manipulability' requires model"
+                )
+            check_revolute_path(model, self._frames[0])
+            self._manip_task = ManipulabilityTask(
+                self._frames[0],
+                model,
+                cost=cost,
+                lm_damping=lm_damping,
+                gain=gain,
+                manipulability_rate=self.manipulability_rate,
+                mask=manip_mask,
+            )
+
+    @property
+    def is_manipulability(self) -> bool:
+        return self.preference == "manipulability"
 
     def set_integration_timestep(self, dt: Optional[float]) -> None:
         """Enable uniform velocity-limit scaling over ``dt`` [s] (or disable)."""
@@ -193,7 +224,39 @@ class NullSpacePostureTask(PostureTask):
             return error / ratio
         return error
 
+    def set_manipulability_rate(self, rate: float) -> None:
+        self.manipulability_rate = float(rate)
+        if self._manip_task is not None:
+            self._manip_task.manipulability_rate = self.manipulability_rate
+
+    def set_manip_mask(self, mask: np.ndarray) -> None:
+        if self._manip_task is None:
+            return
+        self._manip_task.mask = self._manip_task._get_validated_mask(mask)
+
+    def compute_manipulability(self, configuration: Configuration) -> float:
+        if self._manip_task is None:
+            return 0.0
+        return self._manip_task.compute_manipulability(configuration)
+
+    def _manip_jacobian(self, configuration: Configuration) -> np.ndarray:
+        assert self._manip_task is not None
+        _, root_nv = get_root_joint_dim(configuration.model)
+        nv = configuration.model.nv
+        j_m = self._manip_task.compute_jacobian(configuration)
+        block = self._masked_projector_block(configuration)
+        if block is not None:
+            v_idx = self._v_indices
+            row = np.zeros(nv, dtype=float)
+            row[v_idx] = j_m[0, v_idx] @ block
+            return row[root_nv:][np.newaxis, :]
+        projector = self._compute_projector(configuration)
+        row = j_m @ projector
+        return row[:, root_nv:]
+
     def compute_error(self, configuration: Configuration) -> np.ndarray:
+        if self.preference == "manipulability":
+            return np.array([-self.manipulability_rate])
         if self.target_q is None:
             raise TargetNotSet("no posture target")
         _, root_nv = get_root_joint_dim(configuration.model)
@@ -214,6 +277,8 @@ class NullSpacePostureTask(PostureTask):
         return error[root_nv:]
 
     def compute_jacobian(self, configuration: Configuration) -> np.ndarray:
+        if self.preference == "manipulability":
+            return self._manip_jacobian(configuration)
         _, root_nv = get_root_joint_dim(configuration.model)
         nv = configuration.model.nv
         block = self._masked_projector_block(configuration)
@@ -231,7 +296,9 @@ class NullSpacePostureTask(PostureTask):
         return (
             "NullSpacePostureTask("
             f"frames={self._frames}, "
+            f"preference={self.preference!r}, "
             f"cost={self.cost}, "
+            f"manipulability_rate={self.manipulability_rate}, "
             f"projector_damping={self.projector_damping}, "
             f"velocity_limit_scale={self.velocity_limit_scale}, "
             f"dt={self._dt}, "
