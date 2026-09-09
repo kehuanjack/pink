@@ -143,10 +143,16 @@ class GazeTask(Task):
 
     def compute_jacobian(self, configuration: Configuration) -> np.ndarray:
         """Compute the alignment-error Jacobian, masked to selected joints."""
+        _, jacobian = self._error_and_jacobian(configuration)
+        return jacobian
+
+    def _error_and_jacobian(
+        self, configuration: Configuration
+    ) -> tuple[np.ndarray, np.ndarray]:
         transform, axis, direction, distance = self._geometry(configuration)
         jacobian = np.zeros((3, configuration.model.nv))
         if distance <= self.min_target_distance:
-            return jacobian
+            return np.zeros(3), jacobian
 
         frame_jacobian_local = configuration.get_frame_jacobian(self.frame)
         rotation = transform.rotation
@@ -160,14 +166,14 @@ class GazeTask(Task):
         direction_jacobian = -direction_projection @ origin_jacobian / distance
         full_jacobian = direction_jacobian - axis_jacobian
         jacobian[:, self.idx_v] = full_jacobian[:, self.idx_v]
-        return jacobian
+        return direction - axis, jacobian
 
     def compute_qp_objective(
         self, configuration: Configuration
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Build the QP objective with damping restricted to gaze joints."""
-        jacobian = self.compute_jacobian(configuration)
-        minus_gain_error = -self.gain * self.compute_error(configuration)
+        error, jacobian = self._error_and_jacobian(configuration)
+        minus_gain_error = -self.gain * error
         weight = (
             np.eye(3)
             if self.cost is None

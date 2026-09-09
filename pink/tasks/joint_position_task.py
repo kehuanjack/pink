@@ -59,9 +59,9 @@ class JointPositionTask(Task):
                 continue
             joint_id = model.getJointId(name)
             joint = model.joints[joint_id]
-            if joint.nq != 1:
+            if joint.nq != 1 or joint.nv != 1:
                 raise TaskDefinitionError(
-                    f"Joint '{name}' has nq={joint.nq}; "
+                    f"Joint '{name}' has nq={joint.nq}, nv={joint.nv}; "
                     "JointPositionTask supports 1-DoF joints only"
                 )
             idx_q, idx_v = get_joint_idx(model, name)
@@ -75,6 +75,10 @@ class JointPositionTask(Task):
                 f"No valid joints for JointPositionTask: {list(joint_targets)}"
             )
         self._idx_v = np.asarray(self.idx_v, dtype=int)
+        self._idx_q = np.asarray(self.idx_q, dtype=int)
+        self._jacobian = np.zeros((len(self.idx_v), model.nv))
+        self._jacobian[np.arange(len(self.idx_v)), self._idx_v] = 1.0
+        self._jacobian.setflags(write=False)
         resolved_cost = JointPositionTask._resolve_cost_vector(cost, self.joint_names)
         super().__init__(cost=resolved_cost, gain=gain, lm_damping=lm_damping)
 
@@ -114,20 +118,12 @@ class JointPositionTask(Task):
             self._target_q[idx_q] = float(q_pref)
 
     def compute_error(self, configuration: Configuration) -> np.ndarray:
-        r"""Compute joint position error :math:`q^\* \ominus q`."""
-        delta = pin.difference(
-            configuration.model, self._target_q, configuration.q
-        )
-        return delta[self._idx_v]
+        r"""Compute scalar joint position errors :math:`q - q^\*`."""
+        return configuration.q[self._idx_q] - self._target_q[self._idx_q]
 
     def compute_jacobian(self, configuration: Configuration) -> np.ndarray:
-        r"""Jacobian of joint position errors w.r.t. tangent coordinates."""
-        nv = configuration.model.nv
-        k = len(self.idx_v)
-        jacobian = np.zeros((k, nv))
-        for row, idx_v in enumerate(self.idx_v):
-            jacobian[row, idx_v] = 1.0
-        return jacobian
+        r"""Return the cached selector Jacobian."""
+        return self._jacobian
 
     def __repr__(self) -> str:
         """Human-readable representation of the task."""
